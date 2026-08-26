@@ -5,12 +5,16 @@ import MoveList from '../components/MoveList.jsx'
 import { useLang } from '../i18n.jsx'
 import {
   RED, START_FEN, legalMoves, legalTargetsFor,
-  findLegalMove, sqToIccs, iccsToSq, sideInCheck
+  findLegalMove, sqToIccs, iccsToSq, sideInCheck, colorOf
 } from '../engine/board.js'
 import { annotatedReplay, saveGame } from '../game/positionUtils.js'
 import { getProfile, renameProfile, saveProfile } from '../game/profile.js'
 import { applyResult, ratingTier } from '../game/elo.js'
+import { sfx } from '../game/sounds.js'
+import { formatClock } from '../game/mathUtil.js'
 import { OnlineClient, genRoomCode } from '../net/online.js'
+import CapturedTray from '../components/CapturedTray.jsx'
+import Sparkline from '../components/Sparkline.jsx'
 
 export default function Online() {
   const { t } = useLang()
@@ -30,6 +34,8 @@ export default function Online() {
   const [myCode, setMyCode] = useState('')
   const [nameDraft, setNameDraft] = useState(null)
   const [events, setEvents] = useState([])
+  const [timeChoice, setTimeChoice] = useState(0)
+  const [clockView, setClockView] = useState(null)
 
   const clientRef = useRef(null)
   if (!clientRef.current) clientRef.current = new OnlineClient({})
@@ -39,6 +45,7 @@ export default function Online() {
   const movesRef = useRef([])
   const finishedRef = useRef(false)
   const drawCbRef = useRef({})
+  const clockRef = useRef(null)
 
   const positions = useMemo(() => annotatedReplay(START_FEN, moves), [moves])
   const currentPos = positions[positions.length - 1]
@@ -53,6 +60,23 @@ export default function Online() {
     setRepCount(seen.get(keyOf(currentPos)) || 0)
   }, [positions])
 
+  // game clock tick + flag fall
+  useEffect(() => {
+    if (!match || !match.timeMs) return
+    const iv = setInterval(() => {
+      const c = clockRef.current
+      if (!c || finishedRef.current) return
+      setClockView({ ms: [clockRemaining(c, 0), clockRemaining(c, 1)], turn: c.turn })
+      if (clockRemaining(c, c.turn) <= 0) {
+        const flagged = c.turn
+        const winner = flagged === RED ? 1 : 0
+        if (flagged === matchRef.current.myColor) client.sendFlag()
+        finishOnline(winner, 'timeout')
+      }
+    }, 300)
+    return () => clearInterval(iv)
+  }, [match])
+
   // ---------- game end + rating ----------
 
   const finishOnline = (winnerColor, reason) => {
@@ -63,6 +87,9 @@ export default function Online() {
     const score = winnerColor === null ? 0.5 : (winnerColor === m.myColor ? 1 : 0)
     const { delta, profile: np } = applyResult(before, m.opp.rating, score)
     saveProfile(np)
+    if (score === 1) sfx.win()
+    else if (score === 0) sfx.lose()
+    else sfx.draw()
     const rec = {
       id: Date.now() + '' + ((Math.random() * 1e6) | 0),
       ts: Date.now(),
@@ -89,8 +116,29 @@ export default function Online() {
     return true
   }
 
+  const resetClock = () => {
+    const t = matchRef.current && matchRef.current.timeMs
+    clockRef.current = t > 0 ? { ms: [t, t], turn: RED, stamp: Date.now() } : null
+    setClockView(null)
+  }
+
+  const clockRemaining = (c, color) =>
+    c.ms[color] - (color === c.turn ? Date.now() - c.stamp : 0)
+
   const applyMove = iccs => {
     const projected = annotatedReplay(START_FEN, [...movesRef.current, iccs])
+    const last = projected[projected.length - 1]
+    const mover = colorOf(last.move.piece)
+    const c = clockRef.current
+    if (c && !finishedRef.current) {
+      c.ms[mover] = Math.max(0, c.ms[mover] - (Date.now() - c.stamp))
+      c.stamp = Date.now()
+      c.turn = mover ^ 1
+      setClockView({ ms: [clockRemaining(c, 0), clockRemaining(c, 1)], turn: c.turn })
+    }
+    if (last.capture) sfx.capture()
+    else sfx.move()
+    if (last.checkSq >= 0) sfx.check()
     movesRef.current = [...movesRef.current, iccs]
     setMoves(movesRef.current)
     setSelected(-1)
@@ -115,6 +163,8 @@ export default function Online() {
         setLobbyState('idle')
         setMyCode('')
         setFlipView(m.myColor !== RED)
+        matchRef.current.timeMs = m.timeMs || 0
+        resetClock()
       },
       onMove: iccs => {
         const m = matchRef.current
@@ -127,6 +177,7 @@ export default function Online() {
         applyMove(sqToIccs(mv >> 8) + sqToIccs(mv & 255))
       },
       onOppResign: () => finishOnline(matchRef.current && matchRef.current.myColor, 'resign'),
+      onOppFlag: () => finishOnline(matchRef.current ? (matchRef.current.myColor === RED ? 1 : 0) : RED, 'timeout'),
       onDrawOffer: () => { if (!finishedRef.current) setDrawState('received') },
       onDrawAccepted: () => finishOnline(null, 'agreement'),
       onDrawDeclined: () => setDrawState(s => (s === 'sent' ? 'none' : s)),
@@ -148,6 +199,7 @@ export default function Online() {
         setRematchMine(false)
         setRematchTheirs(false)
         setFlipView(newColor !== RED)
+        resetClock()
       }
     })
     client.h = drawCbRef.current
@@ -212,6 +264,8 @@ export default function Online() {
     client.leaveRoom()
     matchRef.current = null
     finishedRef.current = false
+    clockRef.current = null
+    setClockView(null)
     setMatch(null)
     setResult(null)
     setMoves([])
@@ -225,11 +279,11 @@ export default function Online() {
 
   // ---------- lobby actions ----------
 
-  const startSearch = () => { client.seek(getProfile()); setLobbyState('searching') }
+  const startSearch = () => { client.seek(getProfile(), { timeMs: timeChoice }); setLobbyState('searching') }
   const cancelSearch = () => { client.cancelSeek(); setLobbyState('idle') }
   const createRoom = () => {
     const code = genRoomCode()
-    client.openRoom(code, getProfile())
+    client.openRoom(code, getProfile(), { timeMs: timeChoice })
     setMyCode(code)
     setLobbyState('hosting')
   }
@@ -278,21 +332,32 @@ export default function Online() {
     agreement: t('drawAgreed'),
     repetition: t('byRepetition'),
     disconnect: t('oppDisconnected'),
-    left: t('oppLeftGame')
+    left: t('oppLeftGame'),
+    timeout: result && result.winner === myColor ? t('oppFlagged') : t('youFlagged')
   }[r] || '')
 
-  const playerBar = (who, color) => (
-    <div className="panel opponent-bar">
-      <span className={`avatar-ol ${color === RED ? 'red-side' : 'black-side'}`}>
-        {(who.name || '?').slice(0, 1)}
-      </span>
-      <div>
-        <strong>{who.name}{color === myColor ? ` (${t('youLabel')})` : ''}</strong>
-        <small>{who.rating} Elo</small>
+  const playerBar = (who, color) => {
+    const clockMs = clockView ? clockView.ms[color] : (match.timeMs || null)
+    const low = typeof clockMs === 'number' && clockMs < 30000
+    return (
+      <div className="panel opponent-bar">
+        <span className={`avatar-ol ${color === RED ? 'red-side' : 'black-side'}`}>
+          {(who.name || '?').slice(0, 1)}
+        </span>
+        <div>
+          <strong>{who.name}{color === myColor ? ` (${t('youLabel')})` : ''}</strong>
+          <small>{who.rating} Elo</small>
+          <CapturedTray pieces={color === RED ? currentPos.capturedByRed : currentPos.capturedByBlack} />
+        </div>
+        {match.timeMs > 0 && (
+          <span className={`clock-chip ${clockView && clockView.turn === color && !result ? 'active' : ''} ${low ? 'low' : ''}`}>
+            {formatClock(typeof clockMs === 'number' ? Math.max(0, clockMs) : match.timeMs)}
+          </span>
+        )}
+        {!match.timeMs && color !== myColor && <span className="status-chip">{statusText()}</span>}
       </div>
-      {color !== myColor && <span className="status-chip">{statusText()}</span>}
-    </div>
-  )
+    )
+  }
 
   // ---------- lobby ----------
 
@@ -321,6 +386,7 @@ export default function Online() {
                 <span className="tier-chip">{t(tier.key)}</span>
               </div>
               <small className="muted">{t('record')} {record} · {t('peak')} {prof.peak}</small>
+              <Sparkline points={[...prof.history].reverse().map(h => h.rating)} />
             </div>
           </div>
 
@@ -346,6 +412,14 @@ export default function Online() {
               <>
                 <h2>{t('quickMatch')}</h2>
                 <p className="muted hint-line">{t('quickMatchHint')}</p>
+                <div className="tc-row">
+                  <small className="muted">{t('timeControl')}</small>
+                  <div className="tc-opts">
+                    {[[0, 'tcUnlimited'], [900000, 'tc15'], [600000, 'tc10'], [300000, 'tc5']].map(([v, k]) => (
+                      <button key={k} className={`btn small ${timeChoice === v ? 'primary' : ''}`} onClick={() => setTimeChoice(v)}>{t(k)}</button>
+                    ))}
+                  </div>
+                </div>
                 <button className="btn primary big" disabled={!supported} onClick={startSearch}>{t('quickMatch')}</button>
                 <h2>{t('privateRoom')}</h2>
                 <div className="room-row">
@@ -397,6 +471,7 @@ export default function Online() {
           arrow={null}
           onSquare={onSquare}
           interactive={!result && turn === myColor}
+          moveSeq={moves.length}
         />
         {playerBar(me, myColor)}
 

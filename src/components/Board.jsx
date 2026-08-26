@@ -49,9 +49,12 @@ export default function Board({
   onSquare,
   interactive = true,
   mini = false,
+  moveSeq = 0,
   className = ''
 }) {
   const svgRef = useRef(null)
+  const animRef = useRef(null)
+  const prevAnimKey = useRef('')
   const flip = orientation === 1
 
   const dispR = useMemo(() => {
@@ -76,10 +79,35 @@ export default function Board({
     onSquare(idx(dispR[rd], dispC[cd]))
   }
 
+  function row(sq) { return (sq / 9) | 0 }
+  function col(sq) { return sq % 9 }
+
+  const lastFromPt = lastMove ? [cx(dispC[col(lastMove.from)]), cy(dispR[row(lastMove.from)])] : null
+  const lastToPt = lastMove ? [cx(dispC[col(lastMove.to)]), cy(dispR[row(lastMove.to)])] : null
+
+  // Sliding-piece animation: when the last move changes, the destination piece
+  // renders as a "ghost" that glides in from its origin square.
+  const animKey = lastMove ? `${lastMove.from}>${lastMove.to}:${moveSeq || 0}` : ''
+  if (animKey !== prevAnimKey.current) {
+    prevAnimKey.current = animKey
+    animRef.current = lastMove && bd[lastMove.to]
+      ? {
+          key: animKey,
+          toSq: lastMove.to,
+          pc: bd[lastMove.to],
+          x: lastToPt[0], y: lastToPt[1],
+          dx: lastFromPt[0] - lastToPt[0],
+          dy: lastFromPt[1] - lastToPt[1]
+        }
+      : null
+  }
+  const ghost = animRef.current
+
   const pieces = []
   for (let sq = 0; sq < 90; sq++) {
     const p = bd[sq]
     if (!p) continue
+    if (ghost && sq === ghost.toSq) continue
     const r = row(sq), c = col(sq)
     const x = cx(dispC[c]), y = cy(dispR[r])
     const isRed = colorOf(p) === 0
@@ -104,11 +132,30 @@ export default function Board({
     )
   }
 
-  function row(sq) { return (sq / 9) | 0 }
-  function col(sq) { return sq % 9 }
-
-  const lastFromPt = lastMove ? [cx(dispC[col(lastMove.from)]), cy(dispR[row(lastMove.from)])] : null
-  const lastToPt = lastMove ? [cx(dispC[col(lastMove.to)]), cy(dispR[row(lastMove.to)])] : null
+  let ghostEl = null
+  if (ghost && bd[ghost.toSq] === ghost.pc) {
+    const isRed = colorOf(ghost.pc) === 0
+    ghostEl = (
+      <g transform={`translate(${ghost.x},${ghost.y})`} pointerEvents="none">
+        <g key={ghost.key} className="piece-anim" style={{ '--dx': `${ghost.dx}px`, '--dy': `${ghost.dy}px` }}>
+          {selected === ghost.toSq && <circle r="30" fill="none" stroke="#81b64c" strokeWidth="3.5" />}
+          <circle r="25" fill="url(#pieceGrad)" stroke={isRed ? '#c8874a' : '#8a6b46'} strokeWidth="1.6" filter="url(#dropShadow)" />
+          <text
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize="29"
+            fontWeight="700"
+            fontFamily='"Noto Serif SC","Songti SC","STSong","SimSun","KaiTi",serif'
+            fill={isRed ? '#c23122' : '#1d1b16'}
+            style={{ userSelect: 'none' }}
+            y="2"
+          >
+            {pieceChar(ghost.pc)}
+          </text>
+        </g>
+      </g>
+    )
+  }
 
   let arrowEl = null
   if (arrow && arrow.from >= 0 && arrow.to >= 0) {
@@ -203,6 +250,7 @@ export default function Board({
         })}
 
         {pieces}
+        {ghostEl}
         {arrowEl}
 
         {!mini && Array.from({ length: 9 }, (_, c) => (

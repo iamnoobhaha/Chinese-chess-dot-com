@@ -1,0 +1,25 @@
+{
+  "name": "Xiangqi Master 象棋大師",
+  "short_name": "象棋大師",
+  "description": "Play Xiangqi vs AI or online, with ELO ratings and game review.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1d1b19",
+  "theme_color": "#1d1b19",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

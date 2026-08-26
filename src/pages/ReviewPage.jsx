@@ -29,6 +29,7 @@ export default function ReviewPage() {
   const [viewIdx, setViewIdx] = useState(0)
   const [tab, setTab] = useState('moves')
   const [showBest, setShowBest] = useState(false)
+  const [copied, setCopied] = useState(false)
   const autoRef = useRef(null)
   const [autoPlay, setAutoPlay] = useState(false)
 
@@ -248,6 +249,18 @@ export default function ReviewPage() {
         <div className="panel">
           <button className="btn ghost small" onClick={() => { engine.cancel(); setGame(null); setReviewData(null); setStatus('idle') }}>
             ← {t('savedGames')}
+          </button>
+          <button
+            className="btn ghost small"
+            style={{ marginLeft: 8 }}
+            onClick={() => {
+              if (!game) return
+              try { navigator.clipboard.writeText(game.moves.join(' ')) } catch {}
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1500)
+            }}
+          >
+            {copied ? `✓ ${t('copied')}` : t('copyMoves')}
           </button>
         </div>
       </div>

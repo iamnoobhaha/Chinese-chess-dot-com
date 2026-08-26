@@ -97,8 +97,9 @@ export class OnlineClient {
     this.lobby.postMessage(msg)
   }
 
-  seek(profile) {
+  seek(profile, opts = {}) {
     this.seekActive = true
+    this.timeMs = opts.timeMs || 0
     this.me = { id: this.myId, name: profile.name, rating: profile.rating }
     const ping = () => {
       if (!this.seekActive || this.matched) return
@@ -114,8 +115,9 @@ export class OnlineClient {
     this.sentOffers.clear()
   }
 
-  openRoom(code, profile) {
+  openRoom(code, profile, opts = {}) {
     this.hosting = { code, roomId: genId(), profile }
+    this.timeMs = opts.timeMs || 0
     this.me = { id: this.myId, name: profile.name, rating: profile.rating }
     this._post({ type: 'room-open', code, roomId: this.hosting.roomId })
     this._emit('room-opened', code)
@@ -226,7 +228,7 @@ export class OnlineClient {
     this._openRoom(roomId)
     this.players = { [this.myId]: this.me, [opp.id]: opp }
     this.redId = Math.random() < 0.5 ? this.myId : opp.id
-    const start = { type: 'start', roomId, redId: this.redId, players: this.players }
+    const start = { type: 'start', roomId, redId: this.redId, players: this.players, timeMs: this.timeMs || 0 }
     this.startAcked = false
     if (amCoordinator) {
       this._consumeStart(start)
@@ -251,7 +253,13 @@ export class OnlineClient {
     const oppId = Object.keys(start.players).find(id => id !== this.myId)
     this._emit('match-start', `${start.players[oppId].name} (${start.players[oppId].rating})`)
     if (this.h.onMatch) {
-      this.h.onMatch({ roomId: start.roomId, myColor, me: start.players[this.myId], opp: start.players[oppId] })
+      this.h.onMatch({
+        roomId: start.roomId,
+        myColor,
+        me: start.players[this.myId],
+        opp: start.players[oppId],
+        timeMs: start.timeMs || 0
+      })
     }
   }
 
@@ -311,6 +319,7 @@ export class OnlineClient {
         this._emit('move-received', m.iccs)
         if (this.h.onMove) this.h.onMove(m.iccs, m.ply)
         break
+      case 'flag': if (this.h.onOppFlag) this.h.onOppFlag(); break
       case 'resign': if (this.h.onOppResign) this.h.onOppResign(); break
       case 'draw-offer': if (this.h.onDrawOffer) this.h.onDrawOffer(); break
       case 'draw-accept': if (this.h.onDrawAccepted) this.h.onDrawAccepted(); break
@@ -327,6 +336,7 @@ export class OnlineClient {
 
   sendMove(iccs, ply) { this._roomPost({ type: 'move', iccs, ply }) }
   sendResign() { this._roomPost({ type: 'resign' }) }
+  sendFlag() { this._roomPost({ type: 'flag' }) }
   sendDrawOffer() { this._roomPost({ type: 'draw-offer' }) }
   sendDrawAccept() { this._roomPost({ type: 'draw-accept' }) }
   sendDrawDecline() { this._roomPost({ type: 'draw-decline' }) }

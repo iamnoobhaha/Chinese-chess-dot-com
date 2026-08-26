@@ -11,6 +11,9 @@ import {
 import { annotatedReplay, saveGame } from '../game/positionUtils.js'
 import { getProfile, saveProfile } from '../game/profile.js'
 import { AI_LEVEL_RATINGS, applyResult, ratingTier } from '../game/elo.js'
+import { sfx } from '../game/sounds.js'
+import CapturedTray from '../components/CapturedTray.jsx'
+import Sparkline from '../components/Sparkline.jsx'
 
 const LEVELS = 8
 
@@ -76,10 +79,16 @@ export default function Play() {
     saveGame(rec)
     setResult({ winner: winnerColor, reason, gameId: rec.id, delta })
     setPhase('over')
+    if (winnerColor === null) sfx.draw()
+    else if (winnerColor === humanColor) sfx.win()
+    else sfx.lose()
   }
 
   const detectEnd = projPositions => {
     const last = projPositions[projPositions.length - 1]
+    if (last.capture) sfx.capture()
+    else sfx.move()
+    if (last.checkSq >= 0) sfx.check()
     if (legalMoves(last.bd, last.turn).length > 0) return false
     const mated = sideInCheck(last.bd, last.turn)
     const winner = last.turn === RED ? 1 : 0
@@ -220,6 +229,7 @@ export default function Play() {
                 <span className="tier-chip">{t(tier.key)}</span>
               </div>
               <small className="muted">{t('record')} {prof.wins}W / {prof.losses}L / {prof.draws}D</small>
+              <Sparkline points={[...prof.history].reverse().map(h => h.rating)} />
             </div>
           </div>
           <h2>{t('chooseColor')}</h2>
@@ -259,6 +269,7 @@ export default function Play() {
           arrow={arrow}
           onSquare={onSquare}
           interactive={phase === 'playing' && !thinking && turn === humanColor}
+          moveSeq={moves.length}
         />
         {result && (
           <div className="modal-overlay">
@@ -297,6 +308,17 @@ export default function Play() {
             <small>Lv.{level}</small>
           </div>
           <span className="status-chip">{statusText()}</span>
+        </div>
+
+        <div className="panel cap-panel">
+          {[[botName(level - 1), humanColor === RED ? currentPos.capturedByBlack : currentPos.capturedByRed],
+            [t('youLabel'), humanColor === RED ? currentPos.capturedByRed : currentPos.capturedByBlack]]
+            .map(([label, pcs], i) => (
+              <div key={i} className="cap-row">
+                <small className="muted">{label}</small>
+                <CapturedTray pieces={pcs} />
+              </div>
+            ))}
         </div>
 
         <MoveList plies={displayPlies} current={moves.length} onSelect={() => {}} />

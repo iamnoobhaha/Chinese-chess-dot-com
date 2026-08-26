@@ -1,5 +1,7 @@
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { useState } from 'react'
 import { useLang } from './i18n.jsx'
+import { soundEnabled, setSoundEnabled } from './game/sounds.js'
 import Play from './pages/Play.jsx'
 import Online from './pages/Online.jsx'
 import ReviewPage from './pages/ReviewPage.jsx'
@@ -7,6 +9,7 @@ import Learn from './pages/Learn.jsx'
 
 export default function App() {
   const { t, toggle, lang } = useLang()
+  const [sound, setSound] = useState(soundEnabled())
   return (
     <div className="app">
       <header className="topbar">
@@ -20,6 +23,13 @@ export default function App() {
           <NavLink to="/review" className={({ isActive }) => isActive ? 'active' : ''}>{t('review')}</NavLink>
           <NavLink to="/learn" className={({ isActive }) => isActive ? 'active' : ''}>{t('learn')}</NavLink>
         </nav>
+        <button
+          className="btn ghost small icon-btn"
+          title={sound ? t('soundOff') : t('soundOn')}
+          onClick={() => { setSoundEnabled(!sound); setSound(!sound) }}
+        >
+          {sound ? '🔊' : '🔇'}
+        </button>
         <button className="btn ghost small lang-btn" onClick={toggle}>
           {lang === 'zh' ? 'English' : '中文'}
         </button>

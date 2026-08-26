@@ -30,6 +30,18 @@ const STRINGS = {
     zh: '此瀏覽器不支援 BroadcastChannel。在線對戰可在同一瀏覽器的兩個分頁／視窗之間進行。'
   },
   quickMatch: { en: 'Quick Match', zh: '快速匹配' },
+  timeControl: { en: 'Time control', zh: '時間控制' },
+  tcUnlimited: { en: '∞', zh: '∞' },
+  tc15: { en: '15 min', zh: '15分鐘' },
+  tc10: { en: '10 min', zh: '10分鐘' },
+  tc5: { en: '5 min', zh: '5分鐘' },
+  byTimeout: { en: 'time expired', zh: '超時' },
+  youFlagged: { en: 'Your clock ran out', zh: '你的時間用完了' },
+  oppFlagged: { en: "Opponent's clock ran out", zh: '對手超時判負' },
+  soundOn: { en: 'Sound on', zh: '開啟音效' },
+  soundOff: { en: 'Sound off', zh: '關閉音效' },
+  copyMoves: { en: 'Copy moves', zh: '複製著法' },
+  copied: { en: 'Copied!', zh: '已複製！' },
   quickMatchHint: {
     en: 'Open this page in two tabs/windows of the same browser, then click Quick Match in either tab.',
     zh: '在同一瀏覽器的兩個分頁／視窗中開啟本頁面，任意一方點擊「快速匹配」即可配對。'

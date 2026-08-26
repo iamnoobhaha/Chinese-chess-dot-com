@@ -6,6 +6,7 @@ import { LESSON_SEQUENCES } from '../src/data/lessons.js'
 import { expectedScore, ratingDelta, kFactor, applyResult, ratingTier, AI_LEVEL_RATINGS } from '../src/game/elo.js'
 import { defaultProfile } from '../src/game/profile.js'
 import { genRoomCode } from '../src/net/online.js'
+import { formatClock } from '../src/game/mathUtil.js'
 
 let failures = 0
 const check = (name, cond, extra = '') => {
@@ -148,5 +149,8 @@ check('rating tiers monotonic', (() => {
 
 check('room code format', /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}$/.test(genRoomCode()) &&
   genRoomCode() !== genRoomCode() || true)
+
+check('clock format', formatClock(0) === '0:00' && formatClock(59999) === '1:00' &&
+  formatClock(69000) === '1:09' && formatClock(3661000) === '61:01' && formatClock(-5) === '0:00')
 
 process.exit(failures ? 1 : 0)

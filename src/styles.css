@@ -262,6 +262,16 @@ main { flex: 1; }
   50% { opacity: 0.65; }
 }
 
+.piece-anim { animation: glide .16s ease-out; }
+@keyframes glide {
+  from { transform: translate(var(--dx), var(--dy)); }
+  to { transform: translate(0, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .piece-anim { animation: none; }
+}
+
 /* Review */
 .playback { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .playback .btn.small { font-size: 15px; min-width: 44px; }
@@ -465,6 +475,50 @@ main { flex: 1; }
 .center-note { text-align: center; font-size: 13px; }
 
 .delta-chip { margin-left: auto; font-weight: 900; font-size: 14px; flex: 0 0 auto; }
+
+/* Sound toggle */
+.icon-btn { font-size: 15px; padding: 7px 10px; }
+
+/* Captured pieces */
+.cap-panel { display: flex; flex-direction: column; gap: 6px; }
+.cap-row { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+.cap-row small { width: 70px; flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.captured-tray { display: flex; flex-wrap: wrap; gap: 2px; }
+.cap-pc {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: "Noto Serif SC", serif;
+  font-size: 13px; font-weight: 700;
+  background: radial-gradient(circle at 35% 30%, #fff6e0, #e8cf9f);
+  border: 1px solid #c8874a;
+}
+.cap-pc.cap-red { color: #c23122; }
+.cap-pc.cap-black { color: #1d1b16; }
+.opponent-bar .captured-tray { margin-top: 3px; }
+
+/* Game clocks */
+.clock-chip {
+  font-family: ui-monospace, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+  font-weight: 900;
+  background: var(--panel-2);
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.clock-chip.active { color: var(--text); background: #171512; border-color: #57534c; }
+.clock-chip.low { color: var(--red); animation: pulse 1s ease-in-out infinite; }
+
+/* Time control picker */
+.tc-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.tc-opts { display: flex; gap: 6px; }
+.tc-opts .btn { flex: 1; padding: 7px 4px; }
+
+/* Sparkline */
+.sparkline { display: block; margin-top: 4px; }
 
 /* Learn */
 .cat-tabs { display: flex; gap: 8px; margin: 14px 0 18px; flex-wrap: wrap; }
