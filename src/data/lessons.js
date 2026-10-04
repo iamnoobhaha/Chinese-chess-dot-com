@@ -345,12 +345,12 @@ export const ENDGAME_LESSONS = [
     descEn: 'In xiangqi you do NOT need check to win: a player with no legal move LOSES. Seal every square in silence.',
     descZh: '象棋中不用將軍也能贏：無子可動的一方判負。無聲無息封死每一格。',
     minutes: 5,
-    fen: '3k5/2P1P4/1C7/9/9/9/9/9/9/4K4 w',
+    fen: '4k4/9/9/4P4/9/3R1R3/9/9/9/4K4 w',
     userSide: 0,
-    moves: ['b7b9'],
+    moves: ['e6e7'],
     notes: [
-      { ply: -1, en: 'Unlike international chess, STALEMATE IS A LOSS in xiangqi (困斃). Black\u2019s king already suffocates — if only that cannon would stop firing and just sit quietly on b9…', zh: '與國際象棋不同，象棋「困斃」判負。黑將已被憋死——只要那門炮不再開火，安安靜靜坐上b9……' },
-      { ply: 0, en: 'Cannon to b9 — QUIETLY, no check at all (no screen, no check). Now count black\u2019s moves: c9 falls to the c-pawn, e9 to the e-pawn, d8 to both pawns. ZERO legal moves and no check: black is strangled. 困斃 — Red wins!', zh: '炮平b9——安靜地，連將軍都不是（沒有炮架，不成將軍）。數數黑方的著法：c9被七兵管住，e9被九兵管住，d8被雙兵夾死。零著法、無將軍：黑方困斃，紅勝！' }
+      { ply: -1, en: 'Unlike international chess, STALEMATE IS A LOSS in xiangqi (困斃) — you win by taking every single legal move away, without ever giving check. Count Black\u2019s flight squares: the two chariots on d6 and f6 sweep the whole d- and f-files, so the black general has exactly ONE legal square left — e8. Close that one square and Black is dead.', zh: '與國際象棋不同，象棋「困斃」判負——不用將軍，只要把對方每一格著法都封死就贏了。數一數黑方的逃逸格：紅方兩隻車分別控制 d、f 兩條直線，黑將只剩 e8 一格可走。封住這一格，黑方就死定了。' },
+      { ply: 0, en: '兵e6進e7 — QUIETLY, not even a check. The pawn now covers e8, so Black has ZERO legal moves and is not in check: 困斃, and Red wins. Remember this rule — when the enemy general has only one flight square, closing it is often stronger and rarer than a check.', zh: '兵e6進e7——安靜落子，連將軍都不是。兵恰好管住 e8，黑方零著法且無將軍：困斃，紅勝！記住這條規則——當敵將只剩一格可走時，封住它往往比將軍更厲害也更罕見。' }
     ],
     quizAfter: true
   },

@@ -7,6 +7,7 @@ import {
 } from '../engine/board.js'
 import { annotatedReplay } from '../game/positionUtils.js'
 import { ALL_LESSONS, STRATEGY_ARTICLES } from '../data/lessons.js'
+import { getLessonProgress, recordLessonAttempt, resetLessonProgress, articleRead } from '../game/lessonProgress.js'
 
 const CATS = [
   { key: 'opening', titleKey: 'openingsCat' },
@@ -20,7 +21,7 @@ export default function Learn() {
 
   if (cat === 'strategy' && id) {
     const article = STRATEGY_ARTICLES.find(a => a.id === id)
-    return <ArticleReader article={article} onBack={() => navigate('/learn/strategy')} />
+    return <ArticleReader article={article} onBack={() => navigate('/learn/strategy')} onRead={() => articleRead(id)} />
   }
   if (cat && id) {
     const lesson = ALL_LESSONS.find(l => l.id === id)
@@ -34,12 +35,22 @@ export default function Learn() {
 function LessonList({ activeCat }) {
   const { t, lang } = useLang()
   const navigate = useNavigate()
+  const [progress, setProgress] = useState(() => getLessonProgress())
   const lessons = ALL_LESSONS.filter(l => l.cat === activeCat)
   const articles = STRATEGY_ARTICLES
+
+  const catLessons = ALL_LESSONS.filter(l => l.cat === activeCat)
+  const done = catLessons.filter(l => (progress.lessons[l.id] || {}).done).length
 
   return (
     <div className="page">
       <h1>{t('learn')}</h1>
+      {activeCat !== 'strategy' && (
+        <p className="muted">{t('yourProgress')}: {done} / {catLessons.length}</p>
+      )}
+      <div className="progress-bar" style={{ maxWidth: 320, marginBottom: 14 }}>
+        <div style={{ width: (catLessons.length ? (done / catLessons.length) * 100 : 0) + '%' }} />
+      </div>
       <div className="cat-tabs">
         {CATS.map(c => (
           <button key={c.key} className={`cat-tab ${activeCat === c.key ? 'active' : ''}`}
@@ -56,27 +67,44 @@ function LessonList({ activeCat }) {
               <span className="lesson-icon strategy">策</span>
               <strong>{lang === 'zh' ? a.titleZh : a.titleEn}</strong>
               <small>{a.readMin} {t('minutes')}</small>
+              {(progress.articles || {})[a.id] ? <span className="done-badge">✓</span> : null}
             </button>
           ))}
         </div>
       ) : (
         <div className="cards-grid">
-          {lessons.map(l => (
-            <button key={l.id} className="card lesson-card" onClick={() => navigate(`/learn/${l.cat}/${l.id}`)}>
-              <span className={`lesson-icon ${l.cat}`}>{l.icon}</span>
-              <strong>{lang === 'zh' ? l.titleZh : l.titleEn}</strong>
-              <small>{l.descZh && (lang === 'zh' ? '' : '')}{lang === 'zh' ? l.descZh : l.descEn}</small>
-              <span className="muted">{l.moves.length} {t('movesLabel')} · {l.minutes} {t('minutes')}</span>
-            </button>
-          ))}
+          {lessons.map(l => {
+            const p = progress.lessons[l.id] || {}
+            return (
+              <button key={l.id} className="card lesson-card" onClick={() => navigate(`/learn/${l.cat}/${l.id}`)}>
+                <span className={`lesson-icon ${l.cat}`}>{l.icon}</span>
+                <strong>{lang === 'zh' ? l.titleZh : l.titleEn}</strong>
+                <small>{lang === 'zh' ? l.descZh : l.descEn}</small>
+                <span className="muted">{l.moves.length} {t('movesLabel')} · {l.minutes} {t('minutes')}</span>
+                {p.done
+                  ? <span className="done-badge">✓ {t('lessonComplete')}</span>
+                  : p.attempts
+                    ? <span className="muted">{p.attempts} {t('mistakesLabel')}</span>
+                    : <span className="muted">{t('lessonNotStarted')}</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {Object.keys(progress.lessons || {}).length > 0 && (
+        <div className="btn-row" style={{ marginTop: 18, maxWidth: 320 }}>
+          <button className="btn small ghost danger" onClick={() => {
+            if (confirm(t('resetConfirm'))) { resetLessonProgress(); setProgress(getLessonProgress()) }
+          }}>{t('resetProgress')}</button>
         </div>
       )}
     </div>
   )
 }
 
-function ArticleReader({ article, onBack }) {
+function ArticleReader({ article, onBack, onRead }) {
   const { t, lang } = useLang()
+  useEffect(() => { if (article) onRead() }, [article, onRead])
   if (!article) return null
 
   return (
@@ -137,6 +165,8 @@ function LessonPlayer({ lesson, onBack }) {
   const userSide = lesson.userSide ?? RED
   const userToMove = !done && pos.turn === userSide
 
+  useEffect(() => { recordLessonAttempt(lesson.id, 'start') }, [lesson.id])
+
   const note = useMemo(() => {
     if (done) return null
     const candidates = lesson.notes.filter(n => n.ply === step - 1)
@@ -159,6 +189,10 @@ function LessonPlayer({ lesson, onBack }) {
     return () => clearTimeout(autoTimer.current)
   }, [mode, done, userToMove, pos.turn])
 
+  useEffect(() => {
+    if (done && mode === 'practice' && mistakes === 0) recordLessonAttempt(lesson.id, 'done')
+  }, [done, mode, mistakes, lesson.id])
+
   const tryMove = (from, to) => {
     const expectedIccs = lesson.moves[step]
     const mv = findLegalMove(pos.bd, pos.turn, from, to)
@@ -167,6 +201,7 @@ function LessonPlayer({ lesson, onBack }) {
     if (iccs !== expectedIccs) {
       setWrongSq(to)
       setMistakes(m => m + 1)
+      recordLessonAttempt(lesson.id, 'wrong')
       if (mistakes + 1 >= 2) {
         setHintArrow({
           from: iccsToSq(expectedIccs.slice(0, 2)),
@@ -208,6 +243,7 @@ function LessonPlayer({ lesson, onBack }) {
     setSelected(-1)
     setMistakes(0)
     setHintArrow(null)
+    recordLessonAttempt(lesson.id, 'start')
   }
 
   return (
@@ -215,14 +251,20 @@ function LessonPlayer({ lesson, onBack }) {
       <div className="board-col">
         <Board
           bd={pos.bd}
-          orientation={RED}
+          orientation={userSide}
           lastMove={pos.lastFrom >= 0 ? { from: pos.lastFrom, to: pos.lastTo } : null}
           checkSq={pos.checkSq}
           arrow={hintArrow && hintArrow.from >= 0 ? hintArrow : null}
           selected={selected}
           targets={targets}
           onSquare={onBoardClick}
+          onDrop={(from, to) => {
+            if (mode === 'practice' && userToMove && findLegalMove(pos.bd, pos.turn, from, to)) {
+              tryMove(from, to)
+            }
+          }}
           interactive={mode === 'practice'}
+          moveSeq={step}
         />
         {wrongSq >= 0 && <div className="shake-note error">{t('practiceWrong')}</div>}
         {done && mode === 'practice' && (

@@ -1,4 +1,4 @@
-import { START_FEN, parseFen, legalMoves, replay, sqToIccs, sideInCheck } from '../src/engine/board.js'
+import { START_FEN, parseFen, legalMoves, replay, sqToIccs, sideInCheck, isAttacked, idx, gameStatus, insufficientMaterial, repetitionMap, repetitionKey, facingKings } from '../src/engine/board.js'
 import { think, analyzePosition } from '../src/engine/search.js'
 import { annotatedReplay } from '../src/game/positionUtils.js'
 import { buildReview } from '../src/game/review.js'
@@ -82,13 +82,69 @@ check('replay 3 plies ok', (() => {
 }
 
 {
+  // regression: a cannon on an OPEN file attacks directly (it moves like a chariot
+  // until it jumps). Missing this made illegal king moves look legal.
+  const OPEN_CANNON = 'RC1k5/4P4/9/9/9/9/9/9/9/9 b'
+  const ocSt = parseFen(OPEN_CANNON)
+  check('open-file cannon gives check (regression)',
+    sideInCheck(ocSt.bd, 1) && isAttacked(ocSt.bd, ocSt.bd.findIndex((_, i) => i === idx(0, 3)), 0),
+    `inCheck=${sideInCheck(ocSt.bd, 1)}`)
+  check('open-file cannon mate is terminal',
+    legalMoves(ocSt.bd, 1).length === 0 && sideInCheck(ocSt.bd, 1))
+
+  // regression: a screened cannon still strikes through exactly one screen
+  const bd = parseFen('4k4/9/9/9/4P4/9/9/9/9/4C4 w').bd
+  check('screened cannon still attacks through one screen',
+    isAttacked(bd, idx(0, 4), 0))
+  const bd2 = parseFen('4k4/9/9/9/9/9/4P4/4P4/9/4C4 w').bd
+  check('cannon with two screens does not attack',
+    !isAttacked(bd2, idx(0, 4), 0))
+}
+
+check('insufficient material detection', (() => {
+  const bare = parseFen('3ak4/9/9/9/9/9/9/9/9/3AK4 w').bd
+  const armed = parseFen('3ak4/9/9/9/9/9/9/9/9/4K3R w').bd
+  const pawned = parseFen('3ak4/9/9/9/9/9/9/9/4P4/3AK4 w').bd
+  return insufficientMaterial(bare) && !insufficientMaterial(armed) && !insufficientMaterial(pawned)
+})())
+
+check('repetition map counts threefold', (() => {
+  const m = repetitionMap(START_FEN, ['h2e2', 'h9g7', 'e2h2', 'g7h9'])
+  const k0 = repetitionKey(parseFen(START_FEN).bd, 0)
+  return m.get(k0) === 2
+})())
+
+check('replay tolerates corrupt move lists', (() => {
+  const ok = replay(START_FEN, ['h2e2', 'h9g7'])
+  const bad = replay(START_FEN, ['h2e2', 'ZZZZ', 'h0g2'])
+  const illegal = replay(START_FEN, ['h2e2', 'h9g7', 'a0a9'])
+  return ok.length === 3 && !ok.truncated && bad.length === 2 && bad.truncated &&
+    illegal.length === 3 && illegal.truncated
+})())
+
+check('regression: a general only attacks the square beside it', (() => {
+  const bd = parseFen('4k4/9/9/9/9/9/9/9/9/3K5 w').bd // red general on d0
+  return !isAttacked(bd, idx(6, 3), 0) && isAttacked(bd, idx(8, 3), 0)
+})())
+
+check('regression: flying generals are handled by facingKings', (() => {
+  const facing = parseFen('4k4/9/9/9/9/9/9/9/9/4K4 w').bd
+  const screened = parseFen('4k4/9/9/4P4/9/9/9/9/9/4K4 w').bd
+  return facingKings(facing) && sideInCheck(facing, 0) && sideInCheck(facing, 1) &&
+    !facingKings(screened) && !sideInCheck(screened, 0)
+})())
+
+{
   // stalemate (no legal moves, not in check) also loses in xiangqi
-  const STALE_FEN = 'RC1k5/4P4/9/9/9/9/9/9/9/9 b'
+  const STALE_FEN = '3aka3/4a4/9/3R1R3/9/9/9/9/9/4K4 b'
   check('stalemate layout is terminal', legalMoves(parseFen(STALE_FEN).bd, 1).length === 0 && !sideInCheck(parseFen(STALE_FEN).bd, 1))
   const t0 = Date.now()
   const r = think(STALE_FEN, [], 8)
   const dt = Date.now() - t0
   check('think on stalemated side returns null fast', r === null && dt < 1000, `${dt}ms`)
+  const st = gameStatus(parseFen(STALE_FEN).bd, 1)
+  check('gameStatus reports stalemate loss', st.over && st.reason === 'stalemate' && st.winner === 0,
+    JSON.stringify({ r: st.reason, w: st.winner }))
 }
 
 {

@@ -72,6 +72,11 @@ export const sfx = {
       tone(c, { freq: 880, dur: 0.09, type: 'square', gain: 0.08, delay: 0.13 })
     })
   },
+  /** Illegal / rejected move — a soft low click. */
+  reject() {
+    play(c => tone(c, { freq: 150, dur: 0.12, type: 'sawtooth', gain: 0.07, slide: -60 }))
+  },
+  /** Turn a puzzle or game won by the player. */
   win() {
     play(c => {
       ;[523, 659, 784, 1047].forEach((f, i) =>
@@ -88,6 +93,34 @@ export const sfx = {
     play(c => {
       tone(c, { freq: 494, dur: 0.25, type: 'triangle', gain: 0.13 })
       tone(c, { freq: 494, dur: 0.25, type: 'triangle', gain: 0.13, delay: 0.28 })
+    })
+  },
+  /** Rising blip used by the in-game coach after a good move. */
+  good() {
+    play(c => {
+      tone(c, { freq: 660, dur: 0.1, type: 'sine', gain: 0.1 })
+      tone(c, { freq: 880, dur: 0.12, type: 'sine', gain: 0.09, delay: 0.08 })
+    })
+  },
+  /** Falling blip used by the coach after a weak move. */
+  bad() {
+    play(c => {
+      tone(c, { freq: 400, dur: 0.12, type: 'sine', gain: 0.1 })
+      tone(c, { freq: 260, dur: 0.18, type: 'sine', gain: 0.09, delay: 0.09 })
+    })
+  },
+  /** Puzzle solved. */
+  success() {
+    play(c => {
+      ;[659, 880, 1175].forEach((f, i) =>
+        tone(c, { freq: f, dur: 0.16, type: 'triangle', gain: 0.13, delay: i * 0.07 }))
+    })
+  },
+  /** Puzzle failed. */
+  fail() {
+    play(c => {
+      ;[440, 370].forEach((f, i) =>
+        tone(c, { freq: f, dur: 0.2, type: 'triangle', gain: 0.12, delay: i * 0.13 }))
     })
   }
 }

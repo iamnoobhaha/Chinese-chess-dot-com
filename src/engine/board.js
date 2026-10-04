@@ -133,25 +133,31 @@ export function generateMoves(bd, turn) {
 
 const KNIGHT_DELTAS = [[-2, -1], [-2, 1], [2, -1], [2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2]]
 
+/** Has a point crossed the river for the given colour? Red advances towards row 0. */
+export function crossedRiver(row, color) {
+  return color === RED ? row <= 4 : row >= 5
+}
+
 export function isAttacked(bd, sq, by) {
   const r = rowOf(sq), c = colOf(sq)
 
+  // --- pawns: they only ever attack one step diagonally forward ---
   const pf = by === RED ? 1 : -1
   const pr = r + pf
   if (pr >= 0 && pr < 10) {
     const p = bd[idx(pr, c)]
     if (p && colorOf(p) === by && typeOf(p) === 7) return true
   }
-  for (const dc of [-1, 1]) {
-    const cc = c + dc
-    if (cc < 0 || cc > 8) continue
-    const p = bd[idx(r, cc)]
-    if (p && colorOf(p) === by && typeOf(p) === 7) {
-      const crossed = by === RED ? r <= 4 : r >= 5
-      if (crossed) return true
+  if (crossedRiver(r, by)) {
+    for (const dc of [-1, 1]) {
+      const cc = c + dc
+      if (cc < 0 || cc > 8) continue
+      const p = bd[idx(r, cc)]
+      if (p && colorOf(p) === by && typeOf(p) === 7) return true
     }
   }
 
+  // --- horses: blocked by their own leg ---
   for (const [dr, dc] of KNIGHT_DELTAS) {
     const hr = r + dr, hc = c + dc
     if (!inBoard(hr, hc)) continue
@@ -162,16 +168,22 @@ export function isAttacked(bd, sq, by) {
     if (!bd[idx(lr, lc)]) return true
   }
 
-  for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
-    let rr = r + dr, cc = c + dc, seenFirst = false
+  // --- flying pieces along the four rays ---
+  //   chariot (5) and un-jumped cannon (6) hit the first square they reach;
+  //   a cannon also hits the square behind exactly one screen piece;
+  //   a general only hits the square directly beside it. The flying-general
+  //   line is a separate rule and is covered by facingKings().
+for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+    let rr = r + dr, cc = c + dc, dist = 0, seenFirst = false
     while (rr >= 0 && rr < 10 && cc >= 0 && cc < 9) {
+      dist++
       const p = bd[idx(rr, cc)]
       if (p) {
         if (!seenFirst) {
           if (colorOf(p) === by) {
             const t = typeOf(p)
-            if (t === 5) return true
-            if (t === 1) return true
+            if (t === 5 || t === 6) return true
+            if (t === 1 && dist === 1) return true
           }
           seenFirst = true
         } else {
@@ -183,19 +195,18 @@ export function isAttacked(bd, sq, by) {
     }
   }
 
+  // --- advisors (one point diagonally, inside the palace) ---
+  // --- elephants (two points diagonally, never across the river) ---
   for (const [dr, dc] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
     const ar = r + dr, ac = c + dc
     if (inBoard(ar, ac)) {
       const p = bd[idx(ar, ac)]
-      if (p && colorOf(p) === by && typeOf(p) === 2 && inPalace(r, c, by)) return true
+      if (p && colorOf(p) === by && typeOf(p) === 2 && inPalace(ar, ac, by)) return true
     }
     const er = r + 2 * dr, ec = c + 2 * dc
-    if (inBoard(er, ec)) {
+    if (inBoard(er, ec) && !bd[idx(ar, ac)]) {
       const ep = bd[idx(er, ec)]
-      if (ep && colorOf(ep) === by && typeOf(ep) === 3 && !bd[idx(ar, ac)]) {
-        const okSide = by === RED ? r >= 5 : r <= 4
-        if (okSide) return true
-      }
+      if (ep && colorOf(ep) === by && typeOf(ep) === 3 && !crossedRiver(er, by)) return true
     }
   }
   return false
@@ -257,47 +268,152 @@ export function findLegalMove(bd, turn, from, to) {
   return 0
 }
 
+// ---------------------------------------------------------------------------
+// Rules helpers
+// ---------------------------------------------------------------------------
+
+/** Stable identity of a game position (piece placement + side to move). */
+export function repetitionKey(bd, turn) {
+  let s = ''
+  for (let i = 0; i < 90; i++) if (bd[i]) s += bd[i] + ','
+  return (turn === RED ? 'w' : 'b') + s
+}
+
+/** How many times each position occurs along a game (for threefold claims). */
+export function repetitionMap(startFen, iccsList) {
+  const st = parseFen(startFen)
+  const bd = st.bd
+  let turn = st.turn
+  const counts = new Map()
+  const put = () => {
+    const k = repetitionKey(bd, turn)
+    counts.set(k, (counts.get(k) || 0) + 1)
+  }
+  put()
+  for (const s of iccsList || []) {
+    if (typeof s !== 'string' || s.length !== 4) break
+    const from = iccsToSq(s.slice(0, 2)), to = iccsToSq(s.slice(2, 4))
+    if (from < 0 || from > 89 || to < 0 || to > 89 || !bd[from] || colorOf(bd[from]) !== turn) break
+    if (!findLegalMove(bd, turn, from, to)) break
+    makeMove(bd, (from << 8) | to)
+    turn ^= 1
+    put()
+  }
+  return counts
+}
+
+/**
+ * Positions where neither side can possibly deliver mate.
+ * Only advisors and elephants remain on both sides — no chariot, cannon, horse
+ * or pawn can ever checkmate, so the game is dead drawn.
+ */
+export function insufficientMaterial(bd) {
+  const attackers = { [RED]: 0, [BLACK]: 0 }
+  const kings = { [RED]: 0, [BLACK]: 0 }
+  for (let i = 0; i < 90; i++) {
+    const p = bd[i]
+    if (!p) continue
+    const c = colorOf(p), t = typeOf(p)
+    if (t === 1) kings[c]++
+    else if (t >= 4) attackers[c]++
+  }
+  for (const c of [RED, BLACK]) if (!kings[c]) return false
+  return attackers[RED] === 0 && attackers[BLACK] === 0
+}
+
+/**
+ * Terminal state of a position for the side to move.
+ * In xiangqi a side with no legal move loses, whether or not it is in check.
+ */
+export function gameStatus(bd, turn, ctx = {}) {
+  const moves = legalMoves(bd, turn)
+  if (moves.length > 0) {
+    if (ctx.repCount >= 3) return { over: true, reason: 'repetition', winner: null }
+    if (ctx.insufficient !== false && insufficientMaterial(bd)) {
+      return { over: true, reason: 'insufficient', winner: null }
+    }
+    return { over: false, reason: null, winner: null, moves }
+  }
+  return {
+    over: true,
+    reason: sideInCheck(bd, turn) ? 'checkmate' : 'stalemate',
+    winner: turn ^ 1
+  }
+}
+
+/** True when the side to move is delivering or facing a forced checkmate. */
+export function isForcedMateFor(bd, turn, depthLimit = 4) {
+  const opp = turn ^ 1
+  for (const mv of generateMoves(bd, turn)) {
+    const cap = makeMove(bd, mv)
+    const ok = legalMoves(bd, opp).length === 0 && sideInCheck(bd, opp)
+    unmakeMove(bd, mv, cap)
+    if (ok) return true
+    void depthLimit
+  }
+  return false
+}
+
+/**
+ * Replay an ICCS move list from `startFen`, returning one annotated position
+ * per ply. Illegal / malformed moves (which can appear when a saved game in
+ * localStorage was corrupted or hand-edited) stop the replay instead of
+ * corrupting the board, and the returned array is flagged `truncated`.
+ */
 export function replay(startFen, iccsList) {
-  let { bd, turn } = parseFen(startFen)
-  const positions = [{
+  const start = parseFen(startFen)
+  const bd = start.bd
+  let turn = start.turn
+  const seen = new Map()
+  const repKey = repetitionKey(bd, turn)
+  seen.set(repKey, 1)
+
+  const mk = (move, capture, checkSq, from, to) => ({
     bd: Int8Array.from(bd),
     turn,
-    move: null,
-    capture: 0,
-    checkSq: -1,
+    move,
+    capture,
+    checkSq,
     fen: toFen(bd, turn),
-    lastFrom: -1,
-    lastTo: -1,
-    capturedByRed: [],
-    capturedByBlack: []
-  }]
+    key: repetitionKey(bd, turn),
+    repCount: seen.get(repetitionKey(bd, turn)) || 1,
+    lastFrom: from,
+    lastTo: to,
+    capturedByRed: [...trayR],
+    capturedByBlack: [...trayB]
+  })
+
   const trayR = [], trayB = []
-  for (const s of iccsList) {
+  const positions = [mk(null, 0, -1, -1, -1)]
+  let truncated = false
+
+  for (const s of iccsList || []) {
+    if (typeof s !== 'string' || s.length !== 4) { truncated = true; break }
     const from = iccsToSq(s.slice(0, 2)), to = iccsToSq(s.slice(2, 4))
+    if (from < 0 || from > 89 || to < 0 || to > 89 || !bd[from] || colorOf(bd[from]) !== turn) {
+      truncated = true
+      break
+    }
+    const mv = findLegalMove(bd, turn, from, to)
+    if (!mv) { truncated = true; break }
+
     const mover = turn
     const pc = bd[from], cap = bd[to]
-    makeMove(bd, (from << 8) | to)
+    makeMove(bd, mv)
     turn ^= 1
     if (cap) {
       if (mover === RED) trayR.push(cap)
       else trayB.push(cap)
     }
+    const k = repetitionKey(bd, turn)
+    seen.set(k, (seen.get(k) || 0) + 1)
     let checkSq = -1
-    const ok = kingSq(bd, turn)
-    if (ok >= 0 && isAttacked(bd, ok, mover)) checkSq = ok
-    positions.push({
-      bd: Int8Array.from(bd),
-      turn,
-      move: { from, to, piece: pc },
-      capture: cap,
-      checkSq,
-      fen: toFen(bd, turn),
-      lastFrom: from,
-      lastTo: to,
-      capturedByRed: [...trayR],
-      capturedByBlack: [...trayB]
-    })
+    const ks = kingSq(bd, turn)
+    if (ks >= 0 && isAttacked(bd, ks, mover)) checkSq = ks
+    positions.push(mk({ from, to, piece: pc, capture: cap, mover }, cap, checkSq, from, to))
   }
+
+  positions.truncated = truncated
   return positions
 }
 

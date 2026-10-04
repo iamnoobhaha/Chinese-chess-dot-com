@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node tests/smoke.test.mjs && node tests/verify-content.mjs"
+    "test": "node tests/smoke.test.mjs && node tests/verify-content.mjs && node tests/verify-puzzles.mjs && node tests/verify-review.mjs && node tests/verify-i18n.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

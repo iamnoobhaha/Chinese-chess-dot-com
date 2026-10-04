@@ -1,13 +1,14 @@
 {
   "name": "Xiangqi Master 象棋大師",
   "short_name": "象棋大師",
-  "description": "Play Xiangqi vs AI or online, with ELO ratings and game review.",
+  "description": "Play and learn Xiangqi: engine play, online matches, chess.com-grade game review, puzzle trainer and progress tracking.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#1d1b19",
   "theme_color": "#1d1b19",
+  "categories": ["games", "education"],
   "icons": [
     {
       "src": "icon.svg",

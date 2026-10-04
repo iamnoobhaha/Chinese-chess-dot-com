@@ -1,12 +1,12 @@
 import {
-  RED, BLACK, parseFen, generateMoves, makeMove, unmakeMove,
-  sideInCheck, kingSq, isAttacked, typeOf, colorOf, mvToIccs
+  RED, BLACK, parseFen, generateMoves, sideInCheck, typeOf, mvToIccs, insufficientMaterial
 } from './board.js'
 import { evaluate, VAL } from './evaluate.js'
 
 const MATE = 100000
 const INF = 1000000
 const MATE_THRESHOLD = 90000
+const QS_PLY_CAP = 64
 
 const TT_BITS = 19
 const TT_SIZE = 1 << TT_BITS
@@ -38,6 +38,7 @@ let BD = null
 let TURN = RED
 let HASH = 0
 let stackCaps = []
+let hashStack = []
 let killers = []
 let historyHeur = new Int32Array(90 * 90)
 let nodes = 0
@@ -45,14 +46,14 @@ let stopAt = 0
 let stopped = false
 
 export const LEVELS = [
-  { depth: 1, movetime: 300, margin: 200, blunder: 0.35 },
-  { depth: 2, movetime: 400, margin: 160, blunder: 0.25 },
-  { depth: 3, movetime: 600, margin: 120, blunder: 0.15 },
-  { depth: 4, movetime: 900, margin: 90, blunder: 0.08 },
-  { depth: 5, movetime: 1400, margin: 60, blunder: 0.04 },
-  { depth: 6, movetime: 2200, margin: 40, blunder: 0.02 },
-  { depth: 7, movetime: 2500, margin: 20, blunder: 0 },
-  { depth: 8, movetime: 4000, margin: 0, blunder: 0 }
+  { depth: 1, movetime: 200, margin: 250, blunder: 0.40 },
+  { depth: 2, movetime: 350, margin: 170, blunder: 0.25 },
+  { depth: 3, movetime: 700, margin: 110, blunder: 0.10 },
+  { depth: 4, movetime: 1100, margin: 65, blunder: 0.04 },
+  { depth: 6, movetime: 1800, margin: 30, blunder: 0.01 },
+  { depth: 8, movetime: 3000, margin: 12, blunder: 0 },
+  { depth: 10, movetime: 5000, margin: 0, blunder: 0 },
+  { depth: 12, movetime: 8000, margin: 0, blunder: 0 }
 ]
 
 export function setup(fen, iccsList) {
@@ -63,6 +64,7 @@ export function setup(fen, iccsList) {
   for (let i = 0; i < 90; i++) if (BD[i]) HASH ^= ZP[BD[i] * 90 + i]
   if (TURN === BLACK) HASH ^= ZT[1]
   stackCaps = []
+  hashStack = [HASH | 0]
   for (const s of iccsList || []) {
     const from = (s.charCodeAt(0) - 97) + (9 - (s.charCodeAt(1) - 48)) * 9
     const to = (s.charCodeAt(2) - 97) + (9 - (s.charCodeAt(3) - 48)) * 9
@@ -80,6 +82,7 @@ function applyMove(mv) {
   BD[from] = 0
   TURN ^= 1
   stackCaps.push(cap)
+  hashStack.push(HASH | 0)
 }
 
 function undoMove(mv) {
@@ -92,19 +95,47 @@ function undoMove(mv) {
   HASH ^= ZP[pc * 90 + from] ^ ZP[pc * 90 + to]
   if (cap) HASH ^= ZP[cap * 90 + to]
   HASH ^= ZT[TURN]
+  hashStack.pop()
+}
+
+function isRepetition() {
+  const h = HASH | 0
+  const start = hashStack.length - 33
+  for (let i = hashStack.length - 2; i >= 0 && i >= start; i--) {
+    if (hashStack[i] === h) return true
+  }
+  return false
+}
+
+// Mate scores are stored relative to the node they were found at, otherwise a
+// cached "mate in 3" would be replayed as "mate in 1" two plies deeper.
+function scoreToTT(s, ply) {
+  if (s > MATE_THRESHOLD) return s + ply
+  if (s < -MATE_THRESHOLD) return s - ply
+  return s
+}
+
+function scoreFromTT(s, ply) {
+  if (s > MATE_THRESHOLD) return s - ply
+  if (s < -MATE_THRESHOLD) return s + ply
+  return s
 }
 
 function qsearch(alpha, beta, ply) {
   nodes++
   if ((nodes & 2047) === 0 && Date.now() > stopAt) { stopped = true; return 0 }
+  if (ply > 0 && isRepetition()) return 0
   const inChk = sideInCheck(BD, TURN)
   let stand = -INF
   if (!inChk) {
     stand = evaluate(BD, TURN)
     if (stand >= beta) return stand
     if (stand > alpha) alpha = stand
+    if (ply > QS_PLY_CAP) return stand
+  } else if (ply > QS_PLY_CAP + 8) {
+    // pathological checking chain: report a loss rather than looping forever
+    return -MATE + ply
   }
-  if (ply > 40) return inChk ? evaluate(BD, TURN) : stand
   const moves = generateMoves(BD, TURN)
   let scoredMoves = moves
   if (!inChk) {
@@ -117,6 +148,7 @@ function qsearch(alpha, beta, ply) {
     scoredMoves = caps
   }
   let legalCount = 0
+  let best = -INF
   for (const m of scoredMoves) {
     if (!inChk) {
       const victimVal = VAL[typeOf(BD[m & 255])]
@@ -128,11 +160,12 @@ function qsearch(alpha, beta, ply) {
     const s = -qsearch(-beta, -alpha, ply + 1)
     undoMove(m)
     if (stopped) return 0
+    if (s > best) best = s
     if (s >= beta) return s
     if (s > alpha) alpha = s
   }
   if (inChk && legalCount === 0) return -MATE + ply
-  return alpha
+  return best > -INF ? best : stand
 }
 
 function search(depth, alpha, beta, ply, pvLine) {
@@ -141,6 +174,7 @@ function search(depth, alpha, beta, ply, pvLine) {
   if ((nodes & 2047) === 0 && Date.now() > stopAt) { stopped = true; return 0 }
 
   const inChk = sideInCheck(BD, TURN)
+  if (ply > 0 && isRepetition()) return 0
   if (inChk && depth < 30) depth++
   if (depth <= 0) return qsearch(alpha, beta, ply)
 
@@ -149,7 +183,7 @@ function search(depth, alpha, beta, ply, pvLine) {
   if (TT_KEYS[ttIdx] === (HASH | 0)) {
     ttMove = TT_MOVES[ttIdx]
     if (ply > 0 && TT_DEPTHS[ttIdx] >= depth) {
-      const f = TT_FLAGS[ttIdx], sc = TT_SCORES[ttIdx]
+      const f = TT_FLAGS[ttIdx], sc = scoreFromTT(TT_SCORES[ttIdx], ply)
       if (f === 0 || (f === 1 && sc >= beta) || (f === 2 && sc <= alpha)) return sc
     }
   }
@@ -172,6 +206,7 @@ function search(depth, alpha, beta, ply, pvLine) {
   let legalCount = 0
   let bestScore = -INF
   let bestMove = 0
+  let origAlpha = alpha
   const childPv = []
 
   for (let i = 0; i < scored.length; i++) {
@@ -179,7 +214,15 @@ function search(depth, alpha, beta, ply, pvLine) {
     applyMove(mv)
     if (sideInCheck(BD, TURN ^ 1)) { undoMove(mv); continue }
     legalCount++
-    const s = -search(depth - 1, -beta, -alpha, ply + 1, childPv)
+    let s
+    if (i === 0 || alpha <= -INF + 1) {
+      s = -search(depth - 1, -beta, -alpha, ply + 1, childPv)
+    } else {
+      s = -search(depth - 1, -alpha - 1, -alpha, ply + 1, [])
+      if (s > alpha && !stopped) {
+        s = -search(depth - 1, -beta, -alpha, ply + 1, childPv)
+      }
+    }
     undoMove(mv)
     if (stopped) return 0
     if (s > bestScore) { bestScore = s; bestMove = mv }
@@ -188,7 +231,7 @@ function search(depth, alpha, beta, ply, pvLine) {
         if (killers[ply] !== mv) { killers[ply + 64] = killers[ply]; killers[ply] = mv }
         historyHeur[(mv >> 8) * 90 + (mv & 255)] += depth * depth
       }
-      storeTT(depth, 1, s, mv)
+      storeTT(depth, 1, scoreToTT(s, ply), mv)
       return s
     }
     if (s > alpha) {
@@ -198,10 +241,13 @@ function search(depth, alpha, beta, ply, pvLine) {
     }
   }
 
-  if (legalCount === 0) return -MATE + ply
+  if (legalCount === 0) {
+    if (ply === 0 && insufficientMaterial(BD)) return 0
+    return -MATE + ply
+  }
 
-  storeTT(depth, alpha > -INF + 1 ? 0 : 2, bestScore, bestMove)
-  return alpha
+  storeTT(depth, bestScore >= beta ? 1 : (bestScore > origAlpha ? 0 : 2), scoreToTT(bestScore, ply), bestMove)
+  return bestScore
 }
 
 function storeTT(depth, flag, score, mv) {
@@ -257,9 +303,6 @@ export function think(fen, iccsList, level) {
   nodes = 0
   stopped = false
   stopAt = Date.now() + cfg.movetime
-  killers = []
-  historyHeur = new Int32Array(90 * 90)
-  TT_KEYS.fill(0)
 
   const rootMoves = []
   for (const mv of generateMoves(BD, TURN)) {
@@ -271,10 +314,12 @@ export function think(fen, iccsList, level) {
   if (rootMoves.length === 0) return null
 
   let result = null
+  let reachedDepth = 0
   for (let d = 1; d <= cfg.depth; d++) {
-    const res = rootSearch(d, d <= 5, result || rootMoves.map(r => ({ mv: r.mv })))
+    const res = rootSearch(d, d === 1, result || rootMoves.map(r => ({ mv: r.mv })))
     if (stopped) break
     result = res
+    reachedDepth = d
     if (Math.abs(res[0].score) > MATE_THRESHOLD) break
   }
   if (!result || result.length === 0) {
@@ -299,7 +344,7 @@ export function think(fen, iccsList, level) {
     score: clampScore(best.score),
     rawScore: best.score,
     pv: chosen.pv.slice(0, 8).map(mvToIccs),
-    depth: cfg.depth,
+    depth: reachedDepth,
     nodes
   }
 }
@@ -310,12 +355,53 @@ function clampScore(s) {
   return s
 }
 
-export function analyzePosition(fen, iccsList, maxDepth, moveTimeCap) {
+/** Signed mate distance: >0 the side to move mates in n moves, <0 it is mated. */
+export function mateDistance(rawScore) {
+  if (rawScore > MATE_THRESHOLD) return Math.ceil((MATE - rawScore) / 2)
+  if (rawScore < -MATE_THRESHOLD) return -Math.ceil((MATE + rawScore) / 2)
+  return 0
+}
+
+/** How much worse a move may be and still count as an equally good attempt. */
+export const FORCED_TOLERANCE = 12
+
+/** Minimum gap to the second-best move before the best one counts as forced. */
+export const FORCED_GAP = 60
+
+function makeAnalysis({ terminal, terminalReason, winner, score, top, legalCount, forced, reachedDepth, nodes, extra }) {
+  return {
+    terminal,
+    terminalReason: terminalReason || null,
+    winner: winner === undefined ? null : winner,
+    score,
+    mateIn: mateDistance(score),
+    bestFrom: top ? top.mv >> 8 : -1,
+    bestTo: top ? top.mv & 255 : -1,
+    pv: top ? top.pv.slice(0, 10).map(mvToIccs) : [],
+    lines: extra && extra.lines ? extra.lines : [],
+    legalCount: legalCount || 0,
+    onlyMove: legalCount === 1,
+    forced: !!forced,
+    depth: reachedDepth || 0,
+    nodes: nodes || 0,
+    ...(extra || {})
+  }
+}
+
+/**
+ * Full analysis of a position used by Game Review.
+ *
+ * Searches every legal root move with a full window so that alternative lines,
+ * "only move" detection and centipawn-loss maths all have exact numbers.
+ */
+export function analyzePosition(fen, iccsList, maxDepth = 4, moveTimeCap = 1200, opts = {}) {
+  const lines = opts.lines || 4
   setup(fen, iccsList)
   nodes = 0
   stopped = false
   stopAt = Date.now() + moveTimeCap
   killers = []
+  historyHeur.fill(0)
 
   const legal = []
   for (const mv of generateMoves(BD, TURN)) {
@@ -324,31 +410,88 @@ export function analyzePosition(fen, iccsList, maxDepth, moveTimeCap) {
     undoMove(mv)
     if (ok) legal.push({ mv })
   }
+
+  const inCheck = sideInCheck(BD, TURN)
   if (legal.length === 0) {
-    return { terminal: true, score: -MATE + 1, bestFrom: -1, bestTo: -1, pv: [], mateIn: 0 }
+    return makeAnalysis({
+      terminal: true,
+      terminalReason: inCheck ? 'checkmate' : 'stalemate',
+      winner: TURN ^ 1,
+      score: -MATE + 1,
+      top: null,
+      legalCount: 0
+    })
+  }
+  if (insufficientMaterial(BD)) {
+    return makeAnalysis({
+      terminal: true,
+      terminalReason: 'insufficient',
+      winner: null,
+      score: 0,
+      top: null,
+      legalCount: legal.length
+    })
+  }
+  if (opts.repCount >= 3) {
+    return makeAnalysis({
+      terminal: true,
+      terminalReason: 'repetition',
+      winner: null,
+      score: 0,
+      top: null,
+      legalCount: legal.length
+    })
   }
 
   TT_KEYS.fill(0)
   let result = null
+  let reachedDepth = 0
   for (let d = 1; d <= maxDepth; d++) {
-    const res = rootSearch(d, false, result || legal)
+    const res = rootSearch(d, true, result || legal)
     if (stopped) break
     result = res
+    reachedDepth = d
     if (Math.abs(result[0].score) > MATE_THRESHOLD) break
   }
+
   if (!result || !result.length) {
-    return { terminal: false, score: evaluate(BD, TURN), bestFrom: -1, bestTo: -1, pv: [] }
+    return makeAnalysis({
+      terminal: false,
+      score: evaluate(BD, TURN),
+      top: null,
+      legalCount: legal.length,
+      reachedDepth
+    })
   }
+
   const top = result[0]
-  const mateIn = Math.abs(top.score) > MATE_THRESHOLD
-    ? Math.ceil((MATE - Math.abs(top.score)) / 2)
-    : 0
-  return {
+  const tol = opts.forcedTolerance != null ? opts.forcedTolerance : FORCED_TOLERANCE
+  const forcedMoves = result.filter(r => r.score >= top.score - tol).map(r => r.mv)
+  // "forced" means there was a real choice but only one move held the position.
+  // In a position where everything loses by the same amount nothing is forced.
+  const second = result.length > 1 ? result[1].score : -INF
+  const uniqueBest = result.length === 1 || top.score - second >= FORCED_GAP
+  return makeAnalysis({
     terminal: false,
     score: top.score,
-    bestFrom: top.mv >> 8,
-    bestTo: top.mv & 255,
-    pv: top.pv.slice(0, 8).map(mvToIccs),
-    mateIn
-  }
+    top,
+    legalCount: legal.length,
+    forced: forcedMoves.length === 1 && uniqueBest,
+    reachedDepth,
+    nodes,
+    extra: {
+      forcedMoves: forcedMoves.slice(0, 8),
+      uniqueBest,
+      secondBest: result.length > 1 ? result[1].mv : 0,
+      inCheck,
+      lines: result.slice(0, lines).map(r => ({
+        from: r.mv >> 8,
+        to: r.mv & 255,
+        iccs: mvToIccs(r.mv),
+        score: r.score,
+        mateIn: mateDistance(r.score),
+        pv: r.pv.slice(0, 10).map(mvToIccs)
+      }))
+    }
+  })
 }
