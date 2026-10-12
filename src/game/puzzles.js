@@ -55,16 +55,16 @@ const CURATED = [
     hintZh: '將軍的炮沒有炮架——把馬跳到炮的前面當炮架。'
   },
   {
-    id: 'p02',
+id: 'p02',
     rating: 650,
     pattern: 'mateIn1',
     fen: '3aka3/4C4/9/3N1N3/9/9/6C2/9/9/4K4 w',
     side: 0,
-    solution: ['e8e7', 'e8e6', 'e8e5', 'e8e4', 'e8e3'],
-    titleEn: 'Double Cannons (重炮殺)',
-    titleZh: '重炮殺',
-    hintEn: 'One cannon already guards the palace centre — bring the other to the same file.',
-    hintZh: '一門炮已守住九宮中線——把另一門也調到同一條直線上。'
+    solution: ['d6c8', 'd6f7', 'f6g8', 'f6d7'],
+    titleEn: 'Cannon and horses seal the palace (炮馬封宮)',
+    titleZh: '炮馬封宮',
+    hintEn: 'The cannon alone cannot mate. Step a horse so that the cannon checks while the horses cover every flight square.',
+    hintZh: '單炮無法成殺——跳馬讓炮將軍，再用馬守住所有退路。'
   },
   {
     id: 'p03',

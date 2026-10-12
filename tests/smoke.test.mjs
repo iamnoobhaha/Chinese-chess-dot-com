@@ -1,4 +1,4 @@
-import { START_FEN, parseFen, legalMoves, replay, sqToIccs, sideInCheck, isAttacked, idx, gameStatus, insufficientMaterial, repetitionMap, repetitionKey, facingKings } from '../src/engine/board.js'
+import { START_FEN, parseFen, legalMoves, replay, sqToIccs, iccsToSq, sideInCheck, isAttacked, idx, gameStatus, insufficientMaterial, repetitionMap, repetitionKey, facingKings } from '../src/engine/board.js'
 import { think, analyzePosition } from '../src/engine/search.js'
 import { annotatedReplay } from '../src/game/positionUtils.js'
 import { buildReview } from '../src/game/review.js'
@@ -38,7 +38,7 @@ check('replay 3 plies ok', (() => {
   const moves = ['h2e2', 'h9g7']
   const results = []
   for (let j = 0; j <= moves.length; j++) {
-    results.push(analyzePosition(START_FEN, moves.slice(0, j), 3, 600))
+    results.push(analyzePosition(START_FEN, moves.slice(0, j), 6, 900))
   }
   const positions = annotatedReplay(START_FEN, moves)
   const data = buildReview(START_FEN, positions, results)
@@ -82,23 +82,43 @@ check('replay 3 plies ok', (() => {
 }
 
 {
-  // regression: a cannon on an OPEN file attacks directly (it moves like a chariot
-  // until it jumps). Missing this made illegal king moves look legal.
-  const OPEN_CANNON = 'RC1k5/4P4/9/9/9/9/9/9/9/9 b'
-  const ocSt = parseFen(OPEN_CANNON)
-  check('open-file cannon gives check (regression)',
-    sideInCheck(ocSt.bd, 1) && isAttacked(ocSt.bd, ocSt.bd.findIndex((_, i) => i === idx(0, 3)), 0),
-    `inCheck=${sideInCheck(ocSt.bd, 1)}`)
-  check('open-file cannon mate is terminal',
-    legalMoves(ocSt.bd, 1).length === 0 && sideInCheck(ocSt.bd, 1))
+  // CANNON: it glides like a chariot but must jump exactly one screen to capture.
+  // It therefore never attacks the square directly in front of it.
+  const open = parseFen('4k4/9/9/9/9/9/9/9/9/4C4 w').bd
+  check('cannon does not attack along an open file',
+    !isAttacked(open, idx(0, 4), 0) && !isAttacked(open, idx(1, 4), 0))
 
-  // regression: a screened cannon still strikes through exactly one screen
-  const bd = parseFen('4k4/9/9/9/4P4/9/9/9/9/4C4 w').bd
-  check('screened cannon still attacks through one screen',
-    isAttacked(bd, idx(0, 4), 0))
-  const bd2 = parseFen('4k4/9/9/9/9/9/4P4/4P4/9/4C4 w').bd
-  check('cannon with two screens does not attack',
-    !isAttacked(bd2, idx(0, 4), 0))
+  const oneScreen = parseFen('4k4/9/9/9/9/9/4r4/9/9/4C4 w').bd
+  check('cannon attacks through exactly one screen',
+    isAttacked(oneScreen, idx(0, 4), 0))
+
+  const twoScreens = parseFen('4k4/9/9/9/4r4/9/4r4/9/9/4C4 w').bd
+  check('cannon cannot jump two screens',
+    !isAttacked(twoScreens, idx(0, 4), 0))
+
+  // the position from a reported bug: 1.h2e2 h9g7 2.h0g2 i9h9 3.i0h0 b9c7
+  // 4.e3e4 e6e5 5.e2e5 — the cannon takes the central pawn but has no screen, so
+  // it is NOT check and NOT mate.
+  const line = ['h2e2', 'h9g7', 'h0g2', 'i9h9', 'i0h0', 'b9c7', 'e3e4', 'e6e5']
+  let bd = parseFen(START_FEN).bd
+  for (const s of line) {
+    const f = iccsToSq(s.slice(0, 2)), t = iccsToSq(s.slice(2, 4))
+    bd[t] = bd[f]; bd[f] = 0
+  }
+  const f5 = iccsToSq('e2'), t5 = iccsToSq('e5')
+  bd[t5] = bd[f5]; bd[f5] = 0
+  check('unscreened cannon is not check (regression)',
+    !sideInCheck(bd, 1), `inCheck=${sideInCheck(bd, 1)}`)
+  check('unscreened cannon is not mate (regression)',
+    legalMoves(bd, 1).length > 0, `${legalMoves(bd, 1).length} legal replies`)
+}
+
+{
+  // advisor and elephant may not leave their own zone
+  const adv = parseFen('3aka3/9/9/9/9/9/9/9/9/4K4 w').bd
+  check('advisor does not attack outside the palace', !isAttacked(adv, idx(1, 2), 1))
+  const ele = parseFen('4k4/9/9/9/9/9/9/4b4/9/4K4 w').bd
+  check('elephant does not attack across the river', !isAttacked(ele, idx(3, 4), 1))
 }
 
 check('insufficient material detection', (() => {
@@ -109,9 +129,32 @@ check('insufficient material detection', (() => {
 })())
 
 check('repetition map counts threefold', (() => {
-  const m = repetitionMap(START_FEN, ['h2e2', 'h9g7', 'e2h2', 'g7h9'])
-  const k0 = repetitionKey(parseFen(START_FEN).bd, 0)
-  return m.get(k0) === 2
+  const moves = ['h2e2', 'b9c7', 'e2c2', 'c7b9', 'c2e2', 'b9c7', 'e2c2', 'c7b9', 'c2e2', 'b9c7']
+  const counts = replay(START_FEN, moves).map(p => p.repCount)
+  const last = counts[counts.length - 1]
+  return last === 3 && counts.slice(0, 5).every(c => c === 1)
+})())
+
+check('repetition key encodes squares, not just piece values', (() => {
+  // moving a chariot between two squares that both held a chariot used to look
+  // like a repetition and ended games in a bogus draw
+  const a = parseFen('4k4/9/9/9/9/9/9/9/9/4K4 w').bd
+  const b = Int8Array.from(a)
+  b[idx(9, 8)] = 5; b[idx(9, 7)] = 0          // chariot on i0
+  b[idx(9, 0)] = 5; b[idx(9, 1)] = 0
+  const swapped = Int8Array.from(a)
+  swapped[idx(9, 0)] = 0; swapped[idx(9, 1)] = 5 // chariot on b0
+  const moved = Int8Array.from(b)
+  moved[idx(9, 8)] = 0; moved[idx(9, 7)] = 5  // same chariot, different square
+  void swapped
+  return repetitionKey(b, 0) !== repetitionKey(moved, 0)
+})())
+
+check('distinct positions are never counted as a repetition', (() => {
+  // this game triggered the bug report: every position is new
+  const moves = ['h2e2', 'e9e8', 'h0g2', 'h7c7', 'i0h0', 'e6e5', 'c3c4']
+  const positions = replay(START_FEN, moves)
+  return !positions.truncated && positions.every(p => p.repCount === 1)
 })())
 
 check('replay tolerates corrupt move lists', (() => {
@@ -152,7 +195,7 @@ check('regression: flying generals are handled by facingKings', (() => {
   const moves = ['h2e2', 'h9g7', 'h0g2']
   const results = []
   for (let j = 0; j <= moves.length; j++) {
-    results.push(analyzePosition(START_FEN, moves.slice(0, j), 3, 500))
+    results.push(analyzePosition(START_FEN, moves.slice(0, j), 6, 900))
   }
   const positions = annotatedReplay(START_FEN, moves)
   const data = buildReview(START_FEN, positions, results, LESSON_SEQUENCES)
@@ -210,3 +253,4 @@ check('clock format', formatClock(0) === '0:00' && formatClock(59999) === '1:00'
   formatClock(69000) === '1:09' && formatClock(3661000) === '61:01' && formatClock(-5) === '0:00')
 
 process.exit(failures ? 1 : 0)
+

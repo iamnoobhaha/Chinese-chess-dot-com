@@ -168,12 +168,13 @@ export function isAttacked(bd, sq, by) {
     if (!bd[idx(lr, lc)]) return true
   }
 
-  // --- flying pieces along the four rays ---
-  //   chariot (5) and un-jumped cannon (6) hit the first square they reach;
-  //   a cannon also hits the square behind exactly one screen piece;
-  //   a general only hits the square directly beside it. The flying-general
-  //   line is a separate rule and is covered by facingKings().
-for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+// --- flying pieces along the four rays ---
+  //   A chariot (5) takes the first square it reaches; a cannon (6) reaches the
+  //   first square quietly but only *captures* the square behind exactly one
+  //   screen piece, so it never attacks the square right in front of it. A
+  //   general (1) only reaches the square beside it — the flying-general line is
+  //   a separate rule, covered by facingKings().
+  for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
     let rr = r + dr, cc = c + dc, dist = 0, seenFirst = false
     while (rr >= 0 && rr < 10 && cc >= 0 && cc < 9) {
       dist++
@@ -182,7 +183,7 @@ for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
         if (!seenFirst) {
           if (colorOf(p) === by) {
             const t = typeOf(p)
-            if (t === 5 || t === 6) return true
+            if (t === 5) return true
             if (t === 1 && dist === 1) return true
           }
           seenFirst = true
@@ -195,18 +196,21 @@ for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
     }
   }
 
-  // --- advisors (one point diagonally, inside the palace) ---
-  // --- elephants (two points diagonally, never across the river) ---
+// --- advisors (one point diagonally, may only stand inside the palace) ---
+  // --- elephants (two points diagonally, may never reach across the river) ---
+  // Both checks are made on the TARGET square, which is what decides whether the
+  // attacker's move is legal at all.
   for (const [dr, dc] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
     const ar = r + dr, ac = c + dc
     if (inBoard(ar, ac)) {
       const p = bd[idx(ar, ac)]
-      if (p && colorOf(p) === by && typeOf(p) === 2 && inPalace(ar, ac, by)) return true
+      if (p && colorOf(p) === by && typeOf(p) === 2 && inPalace(r, c, by)) return true
     }
     const er = r + 2 * dr, ec = c + 2 * dc
     if (inBoard(er, ec) && !bd[idx(ar, ac)]) {
       const ep = bd[idx(er, ec)]
-      if (ep && colorOf(ep) === by && typeOf(ep) === 3 && !crossedRiver(er, by)) return true
+      const elephantSideOk = by === RED ? r >= 5 : r <= 4
+      if (ep && colorOf(ep) === by && typeOf(ep) === 3 && elephantSideOk) return true
     }
   }
   return false
@@ -272,10 +276,15 @@ export function findLegalMove(bd, turn, from, to) {
 // Rules helpers
 // ---------------------------------------------------------------------------
 
-/** Stable identity of a game position (piece placement + side to move). */
+/**
+ * Stable identity of a game position: side to move + every occupied square with
+ * the piece on it. The square index MUST be part of the key — a key built from
+ * piece values alone collides whenever two pieces are swapped, which would make
+ * the game claim a threefold repetition that never happened.
+ */
 export function repetitionKey(bd, turn) {
   let s = ''
-  for (let i = 0; i < 90; i++) if (bd[i]) s += bd[i] + ','
+  for (let i = 0; i < 90; i++) if (bd[i]) s += i + ':' + bd[i] + ','
   return (turn === RED ? 'w' : 'b') + s
 }
 

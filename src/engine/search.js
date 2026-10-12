@@ -297,6 +297,21 @@ function allowsMateIn1(mv) {
   return found
 }
 
+/** How often the current position already occurs in this game. */
+function repetitionCount() {
+  const h = HASH | 0
+  let n = 0
+  for (let i = 0; i < hashStack.length - 1; i++) if (hashStack[i] === h) n++
+  return n
+}
+
+/**
+ * Threefold repetition is a draw in this ruleset, so the engine should prefer a
+ * different move when one of similar value exists instead of shuffling back and
+ * forth until the game is claimed.
+ */
+const REP_PENALTY = 300
+
 export function think(fen, iccsList, level) {
   setup(fen, iccsList)
   const cfg = LEVELS[Math.max(0, Math.min(7, level - 1))]
@@ -327,6 +342,22 @@ export function think(fen, iccsList, level) {
     result = fallback.length ? fallback : [{ mv: rootMoves[0].mv, score: 0, pv: [rootMoves[0].mv] }]
   }
 
+  // Discourage shuffling: any move that recreates a position seen twice already.
+  const repeated = new Set()
+  for (const r of result) {
+    applyMove(r.mv)
+    if (repetitionCount() >= 2) repeated.add(r.mv)
+    undoMove(r.mv)
+  }
+  if (repeated.size && result.length > repeated.size) {
+    const bestRepeated = result.filter(r => repeated.has(r.mv)).reduce((a, b) => (b.score > a.score ? b : a))
+    if (bestRepeated.score - result[0].score < REP_PENALTY) {
+      result = result
+        .map(r => (repeated.has(r.mv) ? { ...r, score: r.score - REP_PENALTY } : r))
+        .sort((a, b) => b.score - a.score)
+    }
+  }
+
   const best = result[0]
   let chosen = best
   if (result.length > 1 && cfg.blunder > 0 && Math.random() < cfg.blunder) {
@@ -335,8 +366,8 @@ export function think(fen, iccsList, level) {
     const pool = safe.length ? safe : half
     chosen = pool[(Math.random() * pool.length) | 0]
   } else if (cfg.margin > 0 && result.length > 1) {
-    const pool = result.filter(x => x.score >= best.score - cfg.margin)
-    chosen = pool[(Math.random() * pool.length) | 0] || best
+    const pool = result.filter(x => x.score >= best.score - cfg.margin && !repeated.has(x.mv))
+    chosen = (pool.length ? pool : result)[(Math.random() * pool.length || 0) | 0] || best
   }
 
   return {

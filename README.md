@@ -72,15 +72,31 @@ npm test         # engine, content, puzzle, review and i18n checks
 React 18 + Vite + React Router (hash routing), no UI framework — plain CSS.
 The engine runs in a Web Worker, so the UI never blocks while it thinks.
 
-`npm test` runs five suites:
+`npm test` runs six suites:
 
 | suite | what it protects |
 | --- | --- |
-| `smoke.test.mjs` | move generation, attack detection, search, rules, Elo |
+| `audit-rules.mjs` | **perft to depth 4 against published xiangqi counts**, plus a from-scratch re-implementation of every rule cross-checked against `board.js` on 3000 random positions, and every engine mate claim re-derived independently |
+| `smoke.test.mjs` | attack detection, search, rules edge cases, repetition, Elo |
 | `verify-content.mjs` | every lesson line is legal and actually mates |
 | `verify-puzzles.mjs` | every curated puzzle is legal and engine-optimal |
 | `verify-review.mjs` | review classification, graph, summary, opening presets |
 | `verify-i18n.mjs` | no `t()` call points at a missing translation |
+
+### Rules notes
+
+Two xiangqi details are easy to get wrong and are pinned down by the audit:
+
+- A **cannon** glides like a chariot but must jump exactly one screen to capture.
+  It therefore never attacks the piece directly in front of it, and it cannot jump
+  two pieces.
+- **Advisors** may not attack out of the palace and **elephants** may not reach
+  across the river — both are checked on the target square, not the attacker's.
+
+Threefold repetition is a **draw** here and is detected automatically; the engine
+is penalised for recreating a position so it does not shuffle. Position identity
+includes every occupied square, so two same-type pieces being swapped is never
+mistaken for a repetition.
 
 Games, ratings, analysis cache and puzzle progress are stored in `localStorage`.
 

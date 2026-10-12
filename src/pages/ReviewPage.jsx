@@ -15,10 +15,17 @@ import { readAnalysis, writeAnalysis, repetitionCounts } from '../game/analysisC
 import { harvestPuzzles } from '../game/puzzles.js'
 import { saveReviewStat } from '../game/reviewStats.js'
 
-/** Depth presets. Long games get shallower passes so the review stays usable. */
+/**
+ * Depth presets.
+ *
+ * Depth matters a lot here: below about 6 plies the evaluation is unstable
+ * enough that a single opening move can be mis-scored by a couple of hundred
+ * centipawns, which turns the whole report into fiction. Long games get a
+ * shallower pass so the review still finishes in a reasonable time.
+ */
 function depthPlan(totalPly, mode) {
   const long = totalPly > 70 ? 1 : totalPly > 44 ? 2 : 0
-  if (mode === 'instant') return { depth: 5 + long, cap: 320 }
+  if (mode === 'instant') return { depth: 6 + long, cap: 500 }
   if (mode === 'fast') return { depth: 8 + long, cap: 700 }
   return { depth: 12 + long, cap: 1600 }
 }

@@ -83,8 +83,9 @@ function attackersOf(bd, sq, by) {
       if (p) {
         seen++
         if (seen === 1) {
+          // a chariot takes what is in front of it; a cannon needs a screen and
+          // cannot capture the first piece it meets
           if (colorOf(p) === by && typeOf(p) === 5) out.push(VALS[5])
-          else if (colorOf(p) === by && typeOf(p) === 6) out.push(VALS[6])
         } else {
           if (colorOf(p) === by && typeOf(p) === 6) out.push(VALS[6])
           break

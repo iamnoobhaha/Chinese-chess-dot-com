@@ -51,17 +51,12 @@ export function repetitionCounts(fen, moves) {
   const bd = st.bd
   let turn = st.turn
   const counts = [1]
-  const tally = () => {
-    let s = ''
-    for (let i = 0; i < 90; i++) if (bd[i]) s += bd[i] + ','
-    return (turn === 0 ? 'w' : 'b') + s
-  }
-  const seen = new Map([[tally(), 1]])
+  const seen = new Map([[repetitionKey(bd, turn), 1]])
   for (const s of moves || []) {
     if (typeof s !== 'string' || s.length !== 4) { counts.push(0); break }
     const from = (s.charCodeAt(0) - 97) + (9 - (s.charCodeAt(1) - 48)) * 9
     const to = (s.charCodeAt(2) - 97) + (9 - (s.charCodeAt(3) - 48)) * 9
-    if (!bd[from]) { counts.push(0); break }
+    if (!bd[from] || bd[from] === bd[to]) { counts.push(0); break }
     bd[to] = bd[from]
     bd[from] = 0
     turn ^= 1
